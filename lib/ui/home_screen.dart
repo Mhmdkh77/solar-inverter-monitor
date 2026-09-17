@@ -1,7 +1,7 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:deye_solarman/deye_solarman.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../inverter.dart';
 import '../models/data_logger.dart';
 import '../providers/data_loggers_provider.dart';
 import 'dashboard_screen.dart';
