@@ -9,6 +9,10 @@ environment:
 
 dependencies:
   connectivity_plus: ^5.0.2
+  deye_solarman:
+    git:
+      url: https://github.com/Mhmdkh77/deye-solarman
+      ref: v1.0.0
   fl_chart: ^0.66.0
   flutter:
     sdk: flutter
