@@ -50,7 +50,6 @@ lib/
     event_logs_screen.dart    # Filterable grid on/off event history
     settings_screen.dart      # App info, data management
     splash_screen.dart
-old/                          # Earlier prototype implementation, kept as reference
 ```
 
 ## Getting started
