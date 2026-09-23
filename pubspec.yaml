@@ -12,7 +12,7 @@ dependencies:
   deye_solarman:
     git:
       url: https://github.com/Mhmdkh77/deye-solarman
-      ref: v1.0.0
+      ref: v1.0.1
   fl_chart: ^0.66.0
   flutter:
     sdk: flutter
