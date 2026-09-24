@@ -93,11 +93,11 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "v1.0.1"
-      resolved-ref: c7211157e805620db3fe4ad8ac206244019948fb
+      ref: "v1.0.2"
+      resolved-ref: "1d375508e16c2256cb93415654d2339a3ec59a62"
       url: "https://github.com/Mhmdkh77/deye-solarman"
     source: git
-    version: "1.0.1"
+    version: "1.0.2"
   equatable:
     dependency: transitive
     description:
