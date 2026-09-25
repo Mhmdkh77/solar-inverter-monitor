@@ -80,7 +80,7 @@ flutter analyze
 flutter test
 ```
 
-The app is currently configured for **Android**. The `web/` folder is Flutter-generated scaffolding; the web app is not tested or supported. Release builds currently use Android's debug signing configuration, so configure release signing before distributing an APK.
+The app is currently configured for **Android**. The `web/` folder is Flutter-generated scaffolding; the web app is not tested or supported. To build a release APK, create your own private Android signing key and `android/key.properties` as described in the [Flutter Android release guide](https://docs.flutter.dev/deployment/android#sign-the-app), then run `flutter build apk --release`. Signing credentials are excluded from Git.
 
 ## License
 
