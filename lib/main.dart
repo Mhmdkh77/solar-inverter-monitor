@@ -19,6 +19,7 @@ void main() async {
 
   final prefs = await SharedPreferences.getInstance();
   await BackgroundService.initialize();
+  await BackgroundService.resumeMonitoring(prefs);
 
   runApp(
     ProviderScope(
@@ -37,7 +38,7 @@ class SolarApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Solar Grid',
+      title: 'Solar Inverter Monitor',
       theme: _buildTheme(),
       home: const SplashScreen(),
     );
@@ -53,8 +54,8 @@ class SolarApp extends StatelessWidget {
     return base.copyWith(
       textTheme: textTheme,
       colorScheme: const ColorScheme.dark(
-        primary: Color(0xFFF59E0B),      // Solar amber
-        secondary: Color(0xFF10B981),    // Emerald green
+        primary: Color(0xFFF59E0B), // Solar amber
+        secondary: Color(0xFF10B981), // Emerald green
         surface: Color(0xFF111827),
         background: Color(0xFF080C14),
         onPrimary: Colors.black,
@@ -100,18 +101,20 @@ class SolarApp extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFFF59E0B),
           foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          textStyle: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle:
+              GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
         ),
       ),
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith(
-            (s) => s.contains(MaterialState.selected)
+        thumbColor: MaterialStateProperty.resolveWith((s) =>
+            s.contains(MaterialState.selected)
                 ? const Color(0xFFF59E0B)
                 : Colors.grey),
-        trackColor: MaterialStateProperty.resolveWith(
-            (s) => s.contains(MaterialState.selected)
+        trackColor: MaterialStateProperty.resolveWith((s) =>
+            s.contains(MaterialState.selected)
                 ? const Color(0xFFF59E0B).withOpacity(0.3)
                 : Colors.grey.withOpacity(0.3)),
       ),

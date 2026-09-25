@@ -6,6 +6,7 @@ import 'package:deye_solarman/deye_solarman.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/inverter_reading.dart';
 import 'db_helper.dart';
 
 class BackgroundService {
@@ -16,9 +17,24 @@ class BackgroundService {
 
   /// Long aggressive vibration pattern (public for reuse in foreground alarms)
   static const List<int> alarmVibrationPattern = [
-    0, 800, 200, 800, 200, 1200,
-    500, 800, 200, 800, 200, 1200,
-    500, 800, 200, 800, 200, 1200,
+    0,
+    800,
+    200,
+    800,
+    200,
+    1200,
+    500,
+    800,
+    200,
+    800,
+    200,
+    1200,
+    500,
+    800,
+    200,
+    800,
+    200,
+    1200,
   ];
 
   static Future<void> initialize() async {
@@ -51,13 +67,12 @@ class BackgroundService {
 
     await notif.initialize(
       const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        android: AndroidInitializationSettings('@drawable/ic_notification'),
       ),
     );
 
-    final androidPlugin = notif
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+    final androidPlugin = notif.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(monitorChannel);
     await androidPlugin?.createNotificationChannel(alarmChannel);
 
@@ -67,7 +82,7 @@ class BackgroundService {
         autoStart: false,
         isForegroundMode: true,
         notificationChannelId: _monitorChannelId,
-        initialNotificationTitle: 'Solar Grid Monitor',
+        initialNotificationTitle: 'Solar Inverter Monitor',
         initialNotificationContent: 'Starting…',
         foregroundServiceNotificationId: _monitorNotifId,
       ),
@@ -77,6 +92,30 @@ class BackgroundService {
         onBackground: _onIosBackground,
       ),
     );
+  }
+
+  static Future<bool> requestAlarmPermissions() async {
+    final android = FlutterLocalNotificationsPlugin()
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return true;
+    final notificationsAllowed =
+        await android.requestNotificationsPermission() ?? false;
+    if (!notificationsAllowed) return false;
+    // Android may allow notifications but still restrict full-screen display.
+    try {
+      await android.requestFullScreenIntentPermission();
+    } catch (_) {
+      // Regular notifications can still work without full-screen access.
+    }
+    return true;
+  }
+
+  static Future<void> resumeMonitoring(SharedPreferences prefs) async {
+    final alarms = jsonDecode(prefs.getString('active_alarms') ?? '[]') as List;
+    if (alarms.isEmpty) return;
+    final service = FlutterBackgroundService();
+    if (!await service.isRunning()) await service.startService();
   }
 
   /// Saves the updated alarm list to prefs and starts/stops the service.
@@ -89,9 +128,7 @@ class BackgroundService {
 
     if (alarms.isEmpty) {
       if (isRunning) service.invoke('stopService');
-    } else {
-      if (isRunning) service.invoke('stopService');
-      await Future.delayed(const Duration(milliseconds: 500));
+    } else if (!isRunning) {
       await service.startService();
     }
   }
@@ -111,88 +148,96 @@ void onStart(ServiceInstance service) async {
   final notif = FlutterLocalNotificationsPlugin();
 
   if (service is AndroidServiceInstance) {
-    service.on('setAsForeground').listen((_) => service.setAsForegroundService());
-    service.on('setAsBackground').listen((_) => service.setAsBackgroundService());
+    service
+        .on('setAsForeground')
+        .listen((_) => service.setAsForegroundService());
+    service
+        .on('setAsBackground')
+        .listen((_) => service.setAsBackgroundService());
   }
 
   service.on('stopService').listen((_) => service.stopSelf());
 
-  final Map<String, bool?> oldStates = {};
+  var polling = false;
+  late Timer timer;
 
-  Timer.periodic(const Duration(seconds: 30), (timer) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
+  Future<void> poll() async {
+    if (polling) return;
+    polling = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
 
-    final alarmsJson = prefs.getString('active_alarms') ?? '[]';
-    final List<dynamic> alarms = jsonDecode(alarmsJson);
+      final alarmsJson = prefs.getString('active_alarms') ?? '[]';
+      final List<dynamic> alarms = jsonDecode(alarmsJson);
 
-    if (alarms.isEmpty) {
-      timer.cancel();
-      service.stopSelf();
-      return;
-    }
-
-    // Update silent persistent notification
-    if (service is AndroidServiceInstance &&
-        await service.isForegroundService()) {
-      notif.show(
-        BackgroundService._monitorNotifId,
-        'Solar Grid Monitor',
-        'Monitoring ${alarms.length} logger${alarms.length == 1 ? '' : 's'}',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            BackgroundService._monitorChannelId,
-            'Grid Monitor',
-            icon: '@mipmap/ic_launcher',
-            ongoing: true,
-            importance: Importance.low,
-            priority: Priority.low,
-          ),
-        ),
-      );
-    }
-
-    for (final loggerMap in alarms) {
-      final String ip = loggerMap['ipAddress'] as String;
-      final int serial = (loggerMap['serial'] as num).toInt();
-      final String id = loggerMap['id'] as String;
-      final String name = loggerMap['name'] as String;
-
-      Inverter? inverter;
-      try {
-        inverter = await Inverter.init(address: ip, loggerSerial: serial);
-        final data =
-            await inverter.readHoldingRegisters(register: 184, quantity: 11);
-
-        final bool isGridOn = (data['Grid Relay Status'] ?? 0) == 1;
-        final int soc = data['Battery SOC'] ?? 0;
-
-        await DatabaseHelper.instance.insertChartData(id, soc, isGridOn);
-
-        final bool? previous = oldStates[id];
-        if (previous != null && previous != isGridOn) {
-          final bool gridJustWentOff = !isGridOn;
-          final String title = gridJustWentOff
-              ? '⚠️ GRID POWER LOST — $name'
-              : '✅ GRID RESTORED — $name';
-          final String body = gridJustWentOff
-              ? 'The grid has gone OFF. Check your inverter!'
-              : 'Grid power is back ON. Battery at $soc%.';
-          final String eventType = isGridOn ? 'GRID_ON' : 'GRID_OFF';
-
-          await DatabaseHelper.instance.insertEventLog(id, eventType, body);
-
-          await _fireAlarm(notif, id: id, title: title, body: body);
-        }
-
-        oldStates[id] = isGridOn;
-      } catch (_) {
-        // Silently ignore connection failures in background
-      } finally {
-        await inverter?.closeSocket();
+      if (alarms.isEmpty) {
+        timer.cancel();
+        service.stopSelf();
+        return;
       }
+
+      // Update silent persistent notification
+      if (service is AndroidServiceInstance &&
+          await service.isForegroundService()) {
+        await notif.show(
+          BackgroundService._monitorNotifId,
+          'Solar Inverter Monitor',
+          'Monitoring ${alarms.length} logger${alarms.length == 1 ? '' : 's'}',
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              BackgroundService._monitorChannelId,
+              'Grid Monitor',
+              icon: '@drawable/ic_notification',
+              ongoing: true,
+              importance: Importance.low,
+              priority: Priority.low,
+            ),
+          ),
+        );
+      }
+
+      for (final loggerMap in alarms) {
+        final String ip = loggerMap['ipAddress'] as String;
+        final int serial = (loggerMap['serial'] as num).toInt();
+        final int port = (loggerMap['port'] as num?)?.toInt() ?? 8899;
+        final String id = loggerMap['id'] as String;
+        final String name = loggerMap['name'] as String;
+
+        Inverter? inverter;
+        try {
+          inverter = await Inverter.init(
+              address: ip, loggerSerial: serial, port: port);
+          final data =
+              await inverter.readHoldingRegisters(register: 184, quantity: 11);
+          final reading = InverterReading.fromRegisters(data);
+          final transition = await DatabaseHelper.instance
+              .recordReading(id, reading.batterySoc, reading.gridOn);
+
+          if (transition != null) {
+            final String title = !transition
+                ? '⚠️ GRID POWER LOST — $name'
+                : '✅ GRID RESTORED — $name';
+            final String body = !transition
+                ? 'The grid has gone OFF. Check your inverter!'
+                : 'Grid power is back ON. Battery at ${reading.batterySoc}%.';
+            await _fireAlarm(notif, id: id, title: title, body: body);
+          }
+        } catch (_) {
+          // Silently ignore connection failures in background
+        } finally {
+          await inverter?.closeSocket();
+        }
+      }
+    } catch (_) {
+      // Keep the monitor running if preferences or a poll fails.
+    } finally {
+      polling = false;
     }
-  });
+  }
+
+  timer = Timer.periodic(const Duration(seconds: 30), (_) => poll());
+  await poll();
 }
 
 /// Shows a full-screen alarm-style notification that:
@@ -216,7 +261,7 @@ Future<void> _fireAlarm(
         'Grid Alerts',
         importance: Importance.max,
         priority: Priority.max,
-        icon: '@mipmap/ic_launcher',
+        icon: '@drawable/ic_notification',
 
         // ── Alarm sound ──────────────────────────────────────────────────
         playSound: true,
@@ -232,8 +277,8 @@ Future<void> _fireAlarm(
         fullScreenIntent: true,
 
         // ── Stays until user swipes it away ──────────────────────────────
-        ongoing: false,       // false = user CAN dismiss, but it won't auto-hide
-        autoCancel: false,    // won't dismiss when tapped — must swipe
+        ongoing: false, // false = user CAN dismiss, but it won't auto-hide
+        autoCancel: false, // won't dismiss when tapped — must swipe
 
         // ── LED blink (red, 500ms on / 500ms off) ────────────────────────
         enableLights: true,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -14,22 +15,44 @@ class EventLogsScreen extends StatefulWidget {
   State<EventLogsScreen> createState() => _EventLogsScreenState();
 }
 
-class _EventLogsScreenState extends State<EventLogsScreen> {
+class _EventLogsScreenState extends State<EventLogsScreen>
+    with WidgetsBindingObserver {
   List<Map<String, dynamic>> _logs = [];
   bool _isLoading = true;
   String? _filter; // null = all, 'GRID_ON', 'GRID_OFF'
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadLogs();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _loadLogs(showLoading: false),
+    );
   }
 
-  Future<void> _loadLogs() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadLogs(showLoading: false);
+    }
+  }
+
+  Future<void> _loadLogs({bool showLoading = true}) async {
+    if (showLoading) setState(() => _isLoading = true);
+    final filter = _filter;
     final logs = await DatabaseHelper.instance
-        .getEventLogs(widget.loggerId, eventTypeFilter: _filter);
-    if (mounted) {
+        .getEventLogs(widget.loggerId, eventTypeFilter: filter);
+    if (mounted && filter == _filter) {
       setState(() {
         _logs = logs;
         _isLoading = false;
@@ -42,8 +65,7 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF111827),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Clear Logs'),
         content: const Text(
             'Delete all event logs for this logger? This cannot be undone.'),
@@ -56,8 +78,7 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
               onPressed: () => Navigator.pop(context, true),
               child: const Text('Clear',
                   style: TextStyle(
-                      color: Color(0xFFEF4444),
-                      fontWeight: FontWeight.w700))),
+                      color: Color(0xFFEF4444), fontWeight: FontWeight.w700))),
         ],
       ),
     );
@@ -107,8 +128,7 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(
-                    child: CircularProgressIndicator(
-                        color: Color(0xFF10B981)))
+                    child: CircularProgressIndicator(color: Color(0xFF10B981)))
                 : _logs.isEmpty
                     ? _buildEmpty()
                     : _buildList(),
@@ -154,9 +174,8 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
                   _loadLogs();
                 }),
             const Spacer(),
-            Text('${_logs.length} events',
-                style: const TextStyle(
-                    fontSize: 12, color: Color(0xFF6B7280))),
+            Text('${_logs.length} event${_logs.length == 1 ? '' : 's'}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
           ],
         ),
       ),
@@ -175,8 +194,7 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
               _filter == null
                   ? 'No events recorded yet'
                   : 'No ${_filter == 'GRID_ON' ? 'Grid ON' : 'Grid OFF'} events',
-              style:
-                  const TextStyle(fontSize: 16, color: Color(0xFF9CA3AF))),
+              style: const TextStyle(fontSize: 16, color: Color(0xFF9CA3AF))),
           if (_filter != null) ...[
             const SizedBox(height: 12),
             TextButton(
@@ -200,11 +218,10 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
       itemBuilder: (context, index) {
         final log = _logs[index];
         final isGridOn = log['event_type'] == 'GRID_ON';
-        final time = DateTime.fromMillisecondsSinceEpoch(
-            log['timestamp'] as int);
-        final color = isGridOn
-            ? const Color(0xFF10B981)
-            : const Color(0xFFEF4444);
+        final time =
+            DateTime.fromMillisecondsSinceEpoch(log['timestamp'] as int);
+        final color =
+            isGridOn ? const Color(0xFF10B981) : const Color(0xFFEF4444);
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
@@ -212,8 +229,7 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
             decoration: BoxDecoration(
               color: const Color(0xFF111827),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                  color: color.withOpacity(0.2), width: 1),
+              border: Border.all(color: color.withOpacity(0.2), width: 1),
               boxShadow: [
                 BoxShadow(
                   color: color.withOpacity(0.06),
@@ -232,9 +248,7 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  isGridOn
-                      ? Icons.power_rounded
-                      : Icons.power_off_rounded,
+                  isGridOn ? Icons.power_rounded : Icons.power_off_rounded,
                   color: color,
                   size: 20,
                 ),
@@ -256,15 +270,13 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
                     Text(
                       DateFormat('MMM d, yyyy  HH:mm:ss').format(time),
                       style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF9CA3AF)),
+                          fontSize: 11, color: Color(0xFF9CA3AF)),
                     ),
                   ],
                 ),
               ),
               trailing: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(8),
@@ -272,9 +284,7 @@ class _EventLogsScreenState extends State<EventLogsScreen> {
                 child: Text(
                   isGridOn ? 'ON' : 'OFF',
                   style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: color),
+                      fontSize: 11, fontWeight: FontWeight.w800, color: color),
                 ),
               ),
             ),
@@ -312,16 +322,18 @@ class _FilterChip extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? color.withOpacity(0.2) : Colors.white.withOpacity(0.05),
+          color:
+              active ? color.withOpacity(0.2) : Colors.white.withOpacity(0.05),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color: active ? color : Colors.white.withOpacity(0.1)),
+          border:
+              Border.all(color: active ? color : Colors.white.withOpacity(0.1)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 12, color: active ? color : const Color(0xFF6B7280)),
+              Icon(icon,
+                  size: 12, color: active ? color : const Color(0xFF6B7280)),
               const SizedBox(width: 4),
             ],
             Text(

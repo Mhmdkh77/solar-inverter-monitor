@@ -45,7 +45,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             Icon(Icons.bolt_rounded,
                 color: Theme.of(context).colorScheme.primary, size: 22),
             const SizedBox(width: 6),
-            const Text('Solar Grid'),
+            const Flexible(
+              child: Text(
+                'Solar Inverter Monitor',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         actions: [
@@ -205,6 +210,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           Navigator.pop(context);
           _showAddManualDialog(discovered);
         },
+        onManual: () {
+          Navigator.pop(context);
+          _showAddManualDialog({});
+        },
       ),
     );
   }
@@ -215,19 +224,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       builder: (_) => _AddLoggerDialog(
         prefill: prefill,
         onAdd: (logger) async {
-          try {
-            await ref.read(dataLoggersProvider.notifier).addLogger(logger);
-            if (mounted) Navigator.pop(context);
-          } catch (e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('$e'),
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                ),
-              );
-            }
-          }
+          await ref.read(dataLoggersProvider.notifier).addLogger(logger);
+          if (mounted) Navigator.pop(context);
         },
       ),
     );
@@ -245,7 +243,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white60)),
           ),
           TextButton(
             onPressed: () {
@@ -382,15 +381,14 @@ class _LoggerCard extends StatelessWidget {
                             ),
                             Text('$soc',
                                 style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700)),
+                                    fontSize: 11, fontWeight: FontWeight.w700)),
                           ],
                         ),
                       ),
                       const SizedBox(height: 2),
                       const Text('SOC%',
-                          style: TextStyle(
-                              fontSize: 9, color: Color(0xFF6B7280))),
+                          style:
+                              TextStyle(fontSize: 9, color: Color(0xFF6B7280))),
                     ],
                   ),
                   const SizedBox(width: 4),
@@ -459,8 +457,7 @@ class _AddTypeButton extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded,
-                  color: Color(0xFF4B5563)),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF4B5563)),
             ],
           ),
         ),
@@ -475,7 +472,8 @@ class _AddTypeButton extends StatelessWidget {
 
 class _ScanDialog extends StatefulWidget {
   final void Function(Map<String, String>) onSelect;
-  const _ScanDialog({required this.onSelect});
+  final VoidCallback onManual;
+  const _ScanDialog({required this.onSelect, required this.onManual});
 
   @override
   State<_ScanDialog> createState() => _ScanDialogState();
@@ -493,23 +491,25 @@ class _ScanDialogState extends State<_ScanDialog> {
   }
 
   Future<void> _doScan() async {
-    final connectivity = await Connectivity().checkConnectivity();
-    if (connectivity == ConnectivityResult.none) {
-      setState(() {
-        _scanning = false;
-        _message = 'No network connection. Connect to Wi-Fi and try again.';
-      });
-      return;
-    }
-
     try {
+      final connectivity = await Connectivity().checkConnectivity();
+      if (!mounted) return;
+      if (connectivity == ConnectivityResult.none) {
+        setState(() {
+          _scanning = false;
+          _message = 'No network connection. Connect to Wi-Fi and try again.';
+        });
+        return;
+      }
       final results = await Inverter.scan();
+      if (!mounted) return;
       setState(() {
         _results = results;
         _scanning = false;
         if (results.isEmpty) _message = 'No loggers found on this network.';
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _scanning = false;
         _message = 'Scan failed. Add logger manually.';
@@ -527,7 +527,11 @@ class _ScanDialogState extends State<_ScanDialog> {
           Icon(Icons.wifi_find_rounded,
               color: Theme.of(context).colorScheme.secondary, size: 22),
           const SizedBox(width: 10),
-          const Text('Scanning Network…'),
+          Text(_scanning
+              ? 'Scanning Network…'
+              : _results.isEmpty
+                  ? 'Scan Results'
+                  : 'Loggers Found'),
         ],
       ),
       content: SizedBox(
@@ -538,8 +542,7 @@ class _ScanDialogState extends State<_ScanDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(
-                        color: Color(0xFF10B981)),
+                    CircularProgressIndicator(color: Color(0xFF10B981)),
                     SizedBox(height: 16),
                     Text('Sending discovery packet…',
                         style: TextStyle(color: Color(0xFF9CA3AF))),
@@ -570,8 +573,8 @@ class _ScanDialogState extends State<_ScanDialog> {
                         leading: const Icon(Icons.router_rounded,
                             color: Color(0xFF10B981)),
                         title: Text(r['serial'] ?? 'Unknown',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600)),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(r['ipAddress'] ?? '',
                             style: const TextStyle(
                                 color: Color(0xFF9CA3AF), fontSize: 12)),
@@ -582,10 +585,7 @@ class _ScanDialogState extends State<_ScanDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () {
-            Navigator.pop(context);
-            // Caller will show manual dialog
-          },
+          onPressed: widget.onManual,
           child: const Text('Add Manually',
               style: TextStyle(color: Color(0xFF9CA3AF))),
         ),
@@ -600,8 +600,8 @@ class _ScanDialogState extends State<_ScanDialog> {
               _doScan();
             },
             child: Text('Retry',
-                style: TextStyle(
-                    color: Theme.of(context).colorScheme.secondary)),
+                style:
+                    TextStyle(color: Theme.of(context).colorScheme.secondary)),
           ),
       ],
     );
@@ -633,14 +633,14 @@ class _AddLoggerDialogState extends State<_AddLoggerDialog> {
   String? _ipError;
   String? _serialError;
   String? _portError;
+  String? _submitError;
 
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController();
     _ipCtrl = TextEditingController(text: widget.prefill['ipAddress'] ?? '');
-    _serialCtrl =
-        TextEditingController(text: widget.prefill['serial'] ?? '');
+    _serialCtrl = TextEditingController(text: widget.prefill['serial'] ?? '');
     _portCtrl = TextEditingController(text: '8899');
   }
 
@@ -671,12 +671,14 @@ class _AddLoggerDialogState extends State<_AddLoggerDialog> {
             : 'IP octet out of range';
       }
 
-      _serialError = int.tryParse(_serialCtrl.text.trim()) == null
-          ? 'Serial must be a number'
+      final serial = int.tryParse(_serialCtrl.text.trim());
+      _serialError = serial == null || serial < 1 || serial > 0xFFFFFFFF
+          ? 'Enter a valid logger serial number'
           : null;
 
-      _portError = int.tryParse(_portCtrl.text.trim()) == null
-          ? 'Port must be a number'
+      final port = int.tryParse(_portCtrl.text.trim());
+      _portError = port == null || port < 1 || port > 65535
+          ? 'Port must be between 1 and 65535'
           : null;
     });
 
@@ -688,7 +690,10 @@ class _AddLoggerDialogState extends State<_AddLoggerDialog> {
 
   Future<void> _submit() async {
     if (!_validate()) return;
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _submitError = null;
+    });
 
     final logger = DataLogger(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -698,8 +703,16 @@ class _AddLoggerDialogState extends State<_AddLoggerDialog> {
       port: int.parse(_portCtrl.text.trim()),
     );
 
-    await widget.onAdd(logger);
-    if (mounted) setState(() => _loading = false);
+    try {
+      await widget.onAdd(logger);
+    } catch (e) {
+      if (mounted) {
+        setState(
+            () => _submitError = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -714,8 +727,12 @@ class _AddLoggerDialogState extends State<_AddLoggerDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _field('Name', _nameCtrl, _nameError,
-                  hint: 'e.g. Home Rooftop'),
+              if (_submitError != null) ...[
+                Text(_submitError!,
+                    style: const TextStyle(color: Color(0xFFEF4444))),
+                const SizedBox(height: 12),
+              ],
+              _field('Name', _nameCtrl, _nameError, hint: 'e.g. Home Rooftop'),
               const SizedBox(height: 12),
               _field('IP Address', _ipCtrl, _ipError,
                   hint: '192.168.1.x',
@@ -737,8 +754,8 @@ class _AddLoggerDialogState extends State<_AddLoggerDialog> {
       actions: [
         TextButton(
           onPressed: _loading ? null : () => Navigator.pop(context),
-          child: const Text('Cancel',
-              style: TextStyle(color: Color(0xFF6B7280))),
+          child:
+              const Text('Cancel', style: TextStyle(color: Color(0xFF6B7280))),
         ),
         ElevatedButton(
           onPressed: _loading ? null : _submit,
