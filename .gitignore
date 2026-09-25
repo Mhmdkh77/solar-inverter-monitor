@@ -44,3 +44,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Keep release-signing credentials out of the repository.
+*.jks
+*.keystore
+/android/key.properties

@@ -106,7 +106,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               _SettingsTile(
                 icon: Icons.bolt_rounded,
                 iconColor: const Color(0xFFF59E0B),
-                label: 'Solar Grid',
+                label: 'Solar Inverter Monitor',
                 trailing: Text(_version,
                     style: const TextStyle(
                         color: Color(0xFF6B7280), fontSize: 13)),

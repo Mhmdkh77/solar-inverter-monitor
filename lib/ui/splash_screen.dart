@@ -111,17 +111,17 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                         const SizedBox(height: 28),
                         const Text(
-                          'SOLAR GRID',
+                          'SOLAR INVERTER',
                           style: TextStyle(
-                            fontSize: 28,
+                            fontSize: 24,
                             fontWeight: FontWeight.w800,
-                            letterSpacing: 6,
+                            letterSpacing: 4,
                             color: Colors.white,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Inverter Monitor',
+                          'Monitor',
                           style: TextStyle(
                             fontSize: 13,
                             letterSpacing: 2.5,

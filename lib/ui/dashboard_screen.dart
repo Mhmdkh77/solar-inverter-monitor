@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui';
 import 'package:deye_solarman/deye_solarman.dart';
@@ -9,6 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../models/data_logger.dart';
+import '../models/inverter_reading.dart';
 import '../providers/data_loggers_provider.dart';
 import '../services/background_service.dart';
 import '../services/db_helper.dart';
@@ -31,12 +31,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   bool _connecting = true;
   String _error = '';
   bool _autoRefresh = true;
+  bool _fetching = false;
+  bool _reconnecting = false;
 
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
-
-  // Track last known grid state to save foreground events too
-  bool? _lastGridOn;
 
   static const _kPollInterval = Duration(seconds: 10);
 
@@ -60,26 +59,35 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     super.dispose();
   }
 
-  DataLogger get _logger => ref
-      .read(dataLoggersProvider)
-      .firstWhere((l) => l.id == widget.loggerId,
-          orElse: () => const DataLogger(
-              id: '', name: 'Unknown', ipAddress: '', serial: 0));
+  DataLogger get _logger => ref.read(dataLoggersProvider).firstWhere(
+      (l) => l.id == widget.loggerId,
+      orElse: () =>
+          const DataLogger(id: '', name: 'Unknown', ipAddress: '', serial: 0));
 
   Future<void> _initConnection() async {
-    if (!mounted) return;
+    if (!mounted || _reconnecting || _fetching) return;
+    _reconnecting = true;
     setState(() {
       _connecting = true;
       _error = '';
     });
 
     try {
-      _inverter?.closeSocket();
+      _pollingTimer?.cancel();
+      await _inverter?.closeSocket();
+      _inverter = null;
       final logger = _logger;
-      _inverter = await Inverter.init(
-          address: logger.ipAddress, loggerSerial: logger.serial, port: logger.port);
+      final connection = await Inverter.init(
+          address: logger.ipAddress,
+          loggerSerial: logger.serial,
+          port: logger.port);
+      if (!mounted) {
+        await connection.closeSocket();
+        return;
+      }
+      _inverter = connection;
       await _fetchData();
-      _schedulePolling();
+      if (mounted && _inverter != null) _schedulePolling();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -87,6 +95,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           _error = _friendlyError(e);
         });
       }
+    } finally {
+      _reconnecting = false;
     }
   }
 
@@ -97,40 +107,37 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   }
 
   Future<void> _fetchData() async {
-    if (_inverter == null || !mounted) return;
+    if (_inverter == null || !mounted || _fetching) return;
+    _fetching = true;
 
     try {
-      final data = await _inverter!.readHoldingRegisters(register: 184, quantity: 11);
-      final chartData = await DatabaseHelper.instance.getChartData24h(widget.loggerId);
-      final bool isGridOn = (data['Grid Relay Status'] ?? 0) == 1;
-      final int soc = data['Battery SOC'] ?? 0;
+      final data =
+          await _inverter!.readHoldingRegisters(register: 184, quantity: 11);
+      final reading = InverterReading.fromRegisters(data);
+      final transition = await DatabaseHelper.instance
+          .recordReading(widget.loggerId, reading.batterySoc, reading.gridOn);
+      final chartData =
+          await DatabaseHelper.instance.getChartData24h(widget.loggerId);
 
-      // Save foreground data point too (every poll)
-      await DatabaseHelper.instance.insertChartData(widget.loggerId, soc, isGridOn);
+      if (!mounted) return;
 
-      // Log state transitions + fire alarm from foreground too
-      if (_lastGridOn != null && _lastGridOn != isGridOn) {
-        final bool gridJustWentOff = !isGridOn;
-        final String title = gridJustWentOff
+      if (transition != null && _logger.alarmEnabled) {
+        final title = !transition
             ? '⚠️ GRID POWER LOST — ${_logger.name}'
             : '✅ GRID RESTORED — ${_logger.name}';
-        final String msg = gridJustWentOff
+        final body = !transition
             ? 'The grid has gone OFF. Check your inverter!'
-            : 'Grid power is back ON. Battery at $soc%.';
-
-        await DatabaseHelper.instance.insertEventLog(
-            widget.loggerId, isGridOn ? 'GRID_ON' : 'GRID_OFF', msg);
-
-        // Only fire alarm if the alarm is enabled for this logger
-        if (_logger.alarmEnabled) {
-          await _fireForegroundAlarm(title: title, body: msg, loggerId: widget.loggerId);
+            : 'Grid power is back ON. Battery at ${reading.batterySoc}%.';
+        try {
+          await _fireForegroundAlarm(
+              title: title, body: body, loggerId: widget.loggerId);
+        } catch (e) {
+          debugPrint('Could not show grid alert: $e');
         }
       }
-      _lastGridOn = isGridOn;
 
-      // Update home screen live badge
-      ref.read(dataLoggersProvider.notifier)
-          .updateLiveStatus(widget.loggerId, soc: soc, gridOn: isGridOn);
+      ref.read(dataLoggersProvider.notifier).updateLiveStatus(widget.loggerId,
+          soc: reading.batterySoc, gridOn: reading.gridOn);
 
       if (mounted) {
         setState(() {
@@ -142,15 +149,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = _friendlyError(e));
+        setState(() {
+          _connecting = false;
+          _error = _friendlyError(e);
+        });
         _pollingTimer?.cancel();
         await _inverter?.closeSocket();
         _inverter = null;
       }
+    } finally {
+      _fetching = false;
     }
   }
 
   String _friendlyError(Object e) {
+    if (e is FormatException) {
+      return 'Logger returned incomplete or invalid data';
+    }
     final s = e.toString().toLowerCase();
     if (s.contains('timeout')) return 'Connection timed out';
     if (s.contains('connection refused')) return 'Connection refused';
@@ -181,8 +196,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           sound: const UriAndroidNotificationSound(
               'content://settings/system/alarm_alert'),
           enableVibration: true,
-          vibrationPattern: Int64List.fromList(
-              BackgroundService.alarmVibrationPattern),
+          vibrationPattern:
+              Int64List.fromList(BackgroundService.alarmVibrationPattern),
           fullScreenIntent: true,
           ongoing: false,
           autoCancel: false,
@@ -197,6 +212,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     );
   }
 
+  Future<void> _setAlarmEnabled(DataLogger logger, bool enabled) async {
+    if (enabled) {
+      final allowed = await BackgroundService.requestAlarmPermissions();
+      if (!mounted) return;
+      if (!allowed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Allow notifications to enable grid alerts.'),
+          ),
+        );
+        return;
+      }
+    }
+    await ref
+        .read(dataLoggersProvider.notifier)
+        .toggleAlarm(logger.id, enabled);
+  }
+
   // ──────────────────────────────────────────────
   // Build
   // ──────────────────────────────────────────────
@@ -205,8 +238,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   Widget build(BuildContext context) {
     final logger = ref.watch(dataLoggersProvider).firstWhere(
           (l) => l.id == widget.loggerId,
-          orElse: () =>
-              const DataLogger(id: '', name: 'Unknown', ipAddress: '', serial: 0),
+          orElse: () => const DataLogger(
+              id: '', name: 'Unknown', ipAddress: '', serial: 0),
         );
 
     return Scaffold(
@@ -243,7 +276,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
       actions: [
         IconButton(
           icon: Icon(
-            _autoRefresh ? Icons.pause_circle_outline : Icons.play_circle_outline,
+            _autoRefresh
+                ? Icons.pause_circle_outline
+                : Icons.play_circle_outline,
             color: _autoRefresh
                 ? const Color(0xFF10B981)
                 : const Color(0xFF6B7280),
@@ -269,8 +304,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => EventLogsScreen(
-                  loggerId: logger.id, loggerName: logger.name),
+              builder: (_) =>
+                  EventLogsScreen(loggerId: logger.id, loggerName: logger.name),
             ),
           ),
         ),
@@ -293,8 +328,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 color: const Color(0xFF10B981)
                     .withOpacity(0.15 * _pulseAnim.value),
                 border: Border.all(
-                    color: const Color(0xFF10B981)
-                        .withOpacity(_pulseAnim.value),
+                    color:
+                        const Color(0xFF10B981).withOpacity(_pulseAnim.value),
                     width: 2),
               ),
               child: const Icon(Icons.wifi_rounded,
@@ -321,8 +356,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
             const SizedBox(height: 16),
             Text(_error,
                 textAlign: TextAlign.center,
-                style:
-                    const TextStyle(fontSize: 17, color: Color(0xFF9CA3AF))),
+                style: const TextStyle(fontSize: 17, color: Color(0xFF9CA3AF))),
             const SizedBox(height: 28),
             ElevatedButton.icon(
               icon: const Icon(Icons.refresh_rounded),
@@ -351,7 +385,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               children: [
                 Expanded(child: _SocGauge(soc: soc, pulse: _pulseAnim)),
                 const SizedBox(width: 14),
-                Expanded(child: _GridStatusCard(isOn: isGridOn, pulse: _pulseAnim)),
+                Expanded(
+                    child: _GridStatusCard(isOn: isGridOn, pulse: _pulseAnim)),
               ],
             ),
             const SizedBox(height: 14),
@@ -367,6 +402,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   }
 
   Widget _buildChart() {
+    final startMs = DateTime.now()
+        .subtract(const Duration(hours: 24))
+        .millisecondsSinceEpoch;
     return _GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -394,14 +432,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                         style: TextStyle(color: Color(0xFF6B7280))))
                 : LineChart(
                     LineChartData(
+                      minX: 0,
+                      maxX: 24,
                       minY: 0,
                       maxY: 100,
                       gridData: FlGridData(
                         show: true,
                         drawVerticalLine: false,
                         horizontalInterval: 25,
-                        getDrawingHorizontalLine: (_) => const FlLine(
-                            color: Colors.white10, strokeWidth: 1),
+                        getDrawingHorizontalLine: (_) =>
+                            const FlLine(color: Colors.white10, strokeWidth: 1),
                       ),
                       titlesData: FlTitlesData(
                         leftTitles: AxisTitles(
@@ -422,17 +462,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                           sideTitles: SideTitles(
                             showTitles: true,
                             reservedSize: 22,
+                            interval: 6,
                             getTitlesWidget: (value, meta) {
-                              final idx = value.toInt();
-                              if (idx < 0 || idx >= _chartData.length) {
+                              if (value < 0 || value > 24) {
                                 return const SizedBox();
                               }
-                              final step = max(
-                                  1, (_chartData.length / 4).floor());
-                              if (idx % step != 0) return const SizedBox();
-                              final ts = _chartData[idx]['timestamp'] as int;
-                              final dt =
-                                  DateTime.fromMillisecondsSinceEpoch(ts);
+                              final dt = DateTime.fromMillisecondsSinceEpoch(
+                                startMs +
+                                    (value * Duration.millisecondsPerHour)
+                                        .round(),
+                              );
                               return Padding(
                                 padding: const EdgeInsets.only(top: 6),
                                 child: Text(DateFormat('HH:mm').format(dt),
@@ -447,11 +486,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                       borderData: FlBorderData(show: false),
                       lineBarsData: [
                         LineChartBarData(
-                          spots: _chartData.asMap().entries.map((e) {
-                            return FlSpot(e.key.toDouble(),
-                                (e.value['battery_soc'] as int).toDouble());
+                          spots: _chartData.map((point) {
+                            final timestamp = point['timestamp'] as int;
+                            final hours = (timestamp - startMs) /
+                                Duration.millisecondsPerHour;
+                            return FlSpot(hours,
+                                (point['battery_soc'] as int).toDouble());
                           }).toList(),
-                          isCurved: true,
+                          isCurved: false,
                           color: const Color(0xFF10B981),
                           barWidth: 2.5,
                           isStrokeCapRound: true,
@@ -479,9 +521,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 
   Widget _buildAlarmCard(DataLogger logger) {
     return _GlassCard(
-      accentColor: logger.alarmEnabled
-          ? const Color(0xFFF59E0B)
-          : null,
+      accentColor: logger.alarmEnabled ? const Color(0xFFF59E0B) : null,
       child: Row(
         children: [
           Container(
@@ -507,8 +547,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Background Alarm',
-                    style: TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w700)),
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 3),
                 Text(
                   logger.alarmEnabled
@@ -522,8 +562,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           ),
           Switch(
             value: logger.alarmEnabled,
-            onChanged: (val) =>
-                ref.read(dataLoggersProvider.notifier).toggleAlarm(logger.id, val),
+            onChanged: (val) => _setAlarmEnabled(logger, val),
           ),
         ],
       ),
@@ -612,8 +651,7 @@ class _GridStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        isOn ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    final color = isOn ? const Color(0xFF10B981) : const Color(0xFFEF4444);
 
     return _GlassCard(
       child: Column(
@@ -647,12 +685,8 @@ class _GridStatusCard extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                      isOn
-                          ? Icons.power_rounded
-                          : Icons.power_off_rounded,
-                      color: color,
-                      size: 38),
+                  Icon(isOn ? Icons.power_rounded : Icons.power_off_rounded,
+                      color: color, size: 38),
                   const SizedBox(height: 4),
                   Text(
                     isOn ? 'ON' : 'OFF',
@@ -694,8 +728,8 @@ class _GlassCard extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: accentColor?.withOpacity(0.5) ??
-              Colors.white.withOpacity(0.07),
+          color:
+              accentColor?.withOpacity(0.5) ?? Colors.white.withOpacity(0.07),
           width: 1.5,
         ),
         boxShadow: [
