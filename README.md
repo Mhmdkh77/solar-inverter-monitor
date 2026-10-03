@@ -71,6 +71,7 @@ lib/
   ui/                                Home, dashboard, logs, settings, splash
 android/                             Android app and permissions
 test/                                Reading validation tests
+tool/generate_icons.py               Android launcher icon generator
 ```
 
 ## Development status
@@ -80,7 +81,16 @@ flutter analyze
 flutter test
 ```
 
-The app is currently configured for **Android**. The `web/` folder is Flutter-generated scaffolding; the web app is not tested or supported. To build a release APK, create your own private Android signing key and `android/key.properties` as described in the [Flutter Android release guide](https://docs.flutter.dev/deployment/android#sign-the-app), then run `flutter build apk --release`. Signing credentials are excluded from Git.
+The app supports **Android**. To build a release APK, create your own private Android signing key and `android/key.properties` as described in the [Flutter Android release guide](https://docs.flutter.dev/deployment/android#sign-the-app), then run `flutter build apk --release`. Signing credentials are excluded from Git.
+
+The launcher artwork is defined in [tool/generate_icons.py](tool/generate_icons.py). To edit and regenerate the Android icon sizes, install Python and Pillow, then run:
+
+```sh
+python -m pip install Pillow
+python tool/generate_icons.py
+```
+
+Python is only needed to regenerate the icons, not to build or run the app.
 
 ## License
 
