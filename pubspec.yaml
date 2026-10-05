@@ -13,7 +13,6 @@ dependencies:
     git:
       url: https://github.com/Mhmdkh77/deye-solarman
       ref: v1.0.2
-  fl_chart: ^0.66.0
   flutter:
     sdk: flutter
   flutter_background_service: ^5.0.5

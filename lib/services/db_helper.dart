@@ -17,20 +17,10 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
     return openDatabase(path,
-        version: 2, onCreate: _createDB, onUpgrade: _upgradeDB);
+        version: 3, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future<void> _createDB(Database db, int version) async {
-    await db.execute('''
-CREATE TABLE chart_data (
-  _id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  logger_id TEXT    NOT NULL,
-  timestamp INTEGER NOT NULL,
-  battery_soc INTEGER NOT NULL,
-  grid_status INTEGER NOT NULL
-)
-''');
-
     await db.execute('''
 CREATE TABLE event_logs (
   _id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,9 +33,6 @@ CREATE TABLE event_logs (
 
     await _createGridStateTable(db);
 
-    // Index for fast per-logger time-ordered queries
-    await db.execute(
-        'CREATE INDEX idx_chart_logger ON chart_data(logger_id, timestamp)');
     await db.execute(
         'CREATE INDEX idx_event_logger ON event_logs(logger_id, timestamp)');
   }
@@ -53,7 +40,7 @@ CREATE TABLE event_logs (
   Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await _createGridStateTable(db);
-      // Carry forward the last recorded state for existing installations.
+      // Version 1 stored its latest grid state in chart_data.
       await db.execute('''
 INSERT INTO grid_state (logger_id, grid_status)
 SELECT c.logger_id, c.grid_status
@@ -64,6 +51,10 @@ JOIN (
   GROUP BY logger_id
 ) latest ON c._id = latest.last_id
 ''');
+    }
+    if (oldVersion < 3) {
+      // SQLite also removes the chart index when its table is dropped.
+      await db.execute('DROP TABLE IF EXISTS chart_data');
     }
   }
 
@@ -77,7 +68,7 @@ CREATE TABLE grid_state (
   }
 
   // ──────────────────────────────────────────────
-  // Chart data
+  // Grid state
   // ──────────────────────────────────────────────
 
   /// Records a reading and returns the new grid state only when it changed.
@@ -119,42 +110,8 @@ CREATE TABLE grid_state (
         });
       }
 
-      await txn.insert('chart_data', {
-        'logger_id': loggerId,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'battery_soc': batterySoc,
-        'grid_status': current,
-      });
-      final cutoff = DateTime.now()
-          .subtract(const Duration(days: 7))
-          .millisecondsSinceEpoch;
-      await txn.delete(
-        'chart_data',
-        where: 'logger_id = ? AND timestamp < ?',
-        whereArgs: [loggerId, cutoff],
-      );
       return transition;
     });
-  }
-
-  /// Returns the last 24 h of data for a logger.
-  Future<List<Map<String, dynamic>>> getChartData24h(String loggerId) async {
-    final db = await database;
-    final since = DateTime.now()
-        .subtract(const Duration(hours: 24))
-        .millisecondsSinceEpoch;
-    return db.query(
-      'chart_data',
-      where: 'logger_id = ? AND timestamp >= ?',
-      whereArgs: [loggerId, since],
-      orderBy: 'timestamp ASC',
-    );
-  }
-
-  Future<void> clearChartData(String loggerId) async {
-    final db = await database;
-    await db
-        .delete('chart_data', where: 'logger_id = ?', whereArgs: [loggerId]);
   }
 
   // ──────────────────────────────────────────────
@@ -186,7 +143,6 @@ CREATE TABLE grid_state (
 
   /// Delete all data for a logger (called when logger is removed).
   Future<void> deleteLoggerData(String loggerId) async {
-    await clearChartData(loggerId);
     await clearEventLogs(loggerId);
     final db = await database;
     await db
