@@ -2,11 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui';
 import 'package:deye_solarman/deye_solarman.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import '../models/data_logger.dart';
 import '../models/inverter_reading.dart';
 import '../providers/data_loggers_provider.dart';
@@ -26,8 +24,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     with TickerProviderStateMixin {
   Inverter? _inverter;
   Timer? _pollingTimer;
-  Map<String, int>? _data;
-  List<Map<String, dynamic>> _chartData = [];
+  InverterReading? _reading;
   bool _connecting = true;
   String _error = '';
   bool _autoRefresh = true;
@@ -116,8 +113,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
       final reading = InverterReading.fromRegisters(data);
       final transition = await DatabaseHelper.instance
           .recordReading(widget.loggerId, reading.batterySoc, reading.gridOn);
-      final chartData =
-          await DatabaseHelper.instance.getChartData24h(widget.loggerId);
 
       if (!mounted) return;
 
@@ -141,8 +136,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 
       if (mounted) {
         setState(() {
-          _data = data;
-          _chartData = chartData;
+          _reading = reading;
           _connecting = false;
           _error = '';
         });
@@ -283,14 +277,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 ? const Color(0xFF10B981)
                 : const Color(0xFF6B7280),
           ),
-          tooltip: _autoRefresh ? 'Pause polling' : 'Resume polling',
+          tooltip: _autoRefresh
+              ? 'Pause dashboard updates'
+              : 'Resume dashboard updates',
           onPressed: () {
             setState(() => _autoRefresh = !_autoRefresh);
             if (_autoRefresh) {
               _schedulePolling();
+              unawaited(_fetchData());
             } else {
               _pollingTimer?.cancel();
             }
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(SnackBar(
+                content: Text(_autoRefresh
+                    ? 'Dashboard updates resumed.'
+                    : 'Dashboard updates paused. Background alarm setting unchanged.'),
+                duration: const Duration(seconds: 3),
+              ));
           },
         ),
         IconButton(
@@ -370,8 +375,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   }
 
   Widget _buildContent(DataLogger logger) {
-    final int soc = _data?['Battery SOC'] ?? 0;
-    final bool isGridOn = (_data?['Grid Relay Status'] ?? 0) == 1;
+    final int soc = _reading?.batterySoc ?? 0;
+    final bool isGridOn = _reading?.gridOn ?? false;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -390,8 +395,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               ],
             ),
             const SizedBox(height: 14),
-            // ── Battery history chart ─────────────────────────────────────
-            _buildChart(),
+            // ── Live power ────────────────────────────────────────────────
+            _buildPowerCards(),
             const SizedBox(height: 14),
             // ── Alarm card ───────────────────────────────────────────────
             _buildAlarmCard(logger),
@@ -401,121 +406,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     );
   }
 
-  Widget _buildChart() {
-    final startMs = DateTime.now()
-        .subtract(const Duration(hours: 24))
-        .millisecondsSinceEpoch;
-    return _GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Battery SOC — Last 24h',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white)),
-              if (_chartData.isNotEmpty)
-                Text('${_chartData.length} pts',
-                    style: const TextStyle(
-                        fontSize: 11, color: Color(0xFF6B7280))),
-            ],
+  Widget _buildPowerCards() {
+    final batteryPower = _reading?.batteryPowerWatts;
+    final pvTotal = _reading?.pvTotalWatts;
+    final pvDetail = pvTotal == null
+        ? 'Unavailable'
+        : 'PV1 ${_reading!.pv1PowerWatts} W\nPV2 ${_reading!.pv2PowerWatts} W';
+
+    return Row(
+      children: [
+        Expanded(
+          child: _PowerCard(
+            title: 'Battery Power',
+            value: batteryPower == null ? '—' : '${batteryPower.abs()} W',
+            detail: batteryPower == null
+                ? 'Unavailable'
+                : batteryPower > 0
+                    ? 'Discharging'
+                    : batteryPower < 0
+                        ? 'Charging'
+                        : 'Idle',
+            icon: Icons.battery_charging_full_rounded,
+            color: batteryPower == null
+                ? const Color(0xFF6B7280)
+                : batteryPower > 0
+                    ? const Color(0xFFF59E0B)
+                    : const Color(0xFF10B981),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 160,
-            child: _chartData.isEmpty
-                ? const Center(
-                    child: Text('Waiting for data…',
-                        style: TextStyle(color: Color(0xFF6B7280))))
-                : LineChart(
-                    LineChartData(
-                      minX: 0,
-                      maxX: 24,
-                      minY: 0,
-                      maxY: 100,
-                      gridData: FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        horizontalInterval: 25,
-                        getDrawingHorizontalLine: (_) =>
-                            const FlLine(color: Colors.white10, strokeWidth: 1),
-                      ),
-                      titlesData: FlTitlesData(
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 30,
-                            interval: 25,
-                            getTitlesWidget: (v, _) => Text('${v.toInt()}',
-                                style: const TextStyle(
-                                    color: Color(0xFF6B7280), fontSize: 10)),
-                          ),
-                        ),
-                        topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 22,
-                            interval: 6,
-                            getTitlesWidget: (value, meta) {
-                              if (value < 0 || value > 24) {
-                                return const SizedBox();
-                              }
-                              final dt = DateTime.fromMillisecondsSinceEpoch(
-                                startMs +
-                                    (value * Duration.millisecondsPerHour)
-                                        .round(),
-                              );
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(DateFormat('HH:mm').format(dt),
-                                    style: const TextStyle(
-                                        color: Color(0xFF6B7280),
-                                        fontSize: 10)),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      borderData: FlBorderData(show: false),
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: _chartData.map((point) {
-                            final timestamp = point['timestamp'] as int;
-                            final hours = (timestamp - startMs) /
-                                Duration.millisecondsPerHour;
-                            return FlSpot(hours,
-                                (point['battery_soc'] as int).toDouble());
-                          }).toList(),
-                          isCurved: false,
-                          color: const Color(0xFF10B981),
-                          barWidth: 2.5,
-                          isStrokeCapRound: true,
-                          dotData: const FlDotData(show: false),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            gradient: LinearGradient(
-                              colors: [
-                                const Color(0xFF10B981).withOpacity(0.25),
-                                Colors.transparent,
-                              ],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: _PowerCard(
+            title: 'PV1 + PV2',
+            value: pvTotal == null ? '—' : '$pvTotal W',
+            detail: pvDetail,
+            icon: Icons.solar_power_rounded,
+            color: const Color(0xFF10B981),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -573,6 +502,49 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 // SOC Gauge
 // ─────────────────────────────────────────────────────────────────────────────
+
+class _PowerCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final String detail;
+  final IconData icon;
+  final Color color;
+
+  const _PowerCard({
+    required this.title,
+    required this.value,
+    required this.detail,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 185,
+      child: _GlassCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 12),
+            Text(title,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+            const SizedBox(height: 3),
+            Text(value,
+                style:
+                    const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3),
+            Text(detail,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _SocGauge extends StatelessWidget {
   final int soc;

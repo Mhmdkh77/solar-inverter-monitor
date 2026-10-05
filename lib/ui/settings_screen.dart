@@ -23,7 +23,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
-    if (mounted) setState(() => _version = 'v${info.version}+${info.buildNumber}');
+    if (mounted) {
+      setState(() => _version = 'v${info.version}+${info.buildNumber}');
+    }
   }
 
   Future<void> _clearAllData() async {
@@ -32,8 +34,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF111827),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
             Icon(Icons.warning_amber_rounded,
@@ -43,7 +44,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ],
         ),
         content: const Text(
-          'This will permanently delete all chart data and event logs for every logger. Logger configurations will be kept.',
+          'This will permanently delete grid event logs for every logger. Logger configurations will be kept.',
         ),
         actions: [
           TextButton(
@@ -125,8 +126,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 icon: Icons.notifications_active_rounded,
                 iconColor: const Color(0xFF10B981),
                 label: 'Alarm-enabled loggers',
-                trailing: Text(
-                    '${loggers.where((l) => l.alarmEnabled).length}',
+                trailing: Text('${loggers.where((l) => l.alarmEnabled).length}',
                     style: const TextStyle(
                         color: Color(0xFF9CA3AF), fontSize: 13)),
               ),
@@ -143,17 +143,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 iconColor: Color(0xFF8B5CF6),
                 label: 'Data stored locally',
                 trailing: Text('SQLite',
-                    style: TextStyle(
-                        color: Color(0xFF6B7280), fontSize: 13)),
-              ),
-              const _Divider(),
-              const _SettingsTile(
-                icon: Icons.history_rounded,
-                iconColor: Color(0xFF06B6D4),
-                label: 'Chart data retention',
-                trailing: Text('7 days',
-                    style: TextStyle(
-                        color: Color(0xFF6B7280), fontSize: 13)),
+                    style: TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
               ),
               const _Divider(),
               _SettingsTile(
@@ -166,8 +156,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Color(0xFFEF4444)))
+                            strokeWidth: 2, color: Color(0xFFEF4444)))
                     : const Icon(Icons.chevron_right_rounded,
                         color: Color(0xFF4B5563), size: 18),
               ),
@@ -183,36 +172,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 icon: Icons.lan_rounded,
                 iconColor: Color(0xFF10B981),
                 label: 'Communication',
+                stacked: true,
                 trailing: Text('SolarmanV5 / Modbus RTU',
-                    style: TextStyle(
-                        color: Color(0xFF6B7280), fontSize: 12)),
+                    style: TextStyle(color: Color(0xFF6B7280), fontSize: 12)),
               ),
               _Divider(),
               _SettingsTile(
                 icon: Icons.wifi_rounded,
                 iconColor: Color(0xFFF59E0B),
                 label: 'Discovery protocol',
+                stacked: true,
                 trailing: Text('UDP broadcast :48899',
-                    style: TextStyle(
-                        color: Color(0xFF6B7280), fontSize: 12)),
+                    style: TextStyle(color: Color(0xFF6B7280), fontSize: 12)),
               ),
               _Divider(),
               _SettingsTile(
                 icon: Icons.timer_outlined,
                 iconColor: Color(0xFF3B82F6),
                 label: 'Background poll interval',
+                stacked: true,
                 trailing: Text('30 seconds',
-                    style: TextStyle(
-                        color: Color(0xFF6B7280), fontSize: 13)),
+                    style: TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
               ),
               _Divider(),
               _SettingsTile(
                 icon: Icons.timer_outlined,
                 iconColor: Color(0xFF06B6D4),
                 label: 'Foreground poll interval',
+                stacked: true,
                 trailing: Text('10 seconds',
-                    style: TextStyle(
-                        color: Color(0xFF6B7280), fontSize: 13)),
+                    style: TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
               ),
             ],
           ),
@@ -270,6 +259,7 @@ class _SettingsTile extends StatelessWidget {
   final String label;
   final Widget? trailing;
   final VoidCallback? onTap;
+  final bool stacked;
 
   const _SettingsTile({
     required this.icon,
@@ -277,6 +267,7 @@ class _SettingsTile extends StatelessWidget {
     required this.label,
     this.trailing,
     this.onTap,
+    this.stacked = false,
   });
 
   @override
@@ -301,11 +292,24 @@ class _SettingsTile extends StatelessWidget {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Text(label,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w500)),
+                child: stacked
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(label,
+                              style: const TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w500)),
+                          if (trailing != null) ...[
+                            const SizedBox(height: 3),
+                            trailing!,
+                          ],
+                        ],
+                      )
+                    : Text(label,
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w500)),
               ),
-              if (trailing != null) trailing!,
+              if (!stacked && trailing != null) trailing!,
             ],
           ),
         ),
