@@ -38,7 +38,7 @@ The dashboard requests holding registers `184` through `194` and displays Batter
 
 ## Run the app
 
-You need the [Flutter SDK](https://docs.flutter.dev/get-started/install), an Android device, and a reachable data logger for live readings. This repository targets Dart `>=3.2.2 <4.0.0`. An emulator can show the UI, but it needs network access to the logger for live data.
+You need the [Flutter SDK](https://docs.flutter.dev/get-started/install), an Android device, and a reachable data logger for live readings. The checked-in dependency lockfile requires Flutter `>=3.44.0` and Dart `>=3.12.0 <4.0.0`; the installed SDK metadata inspected for this checkout reports Flutter `3.47.2` and Dart `3.13.2`. The broader Dart constraint in `pubspec.yaml` does not describe the minimum needed by the current locked dependencies. An emulator can show the UI, but it needs network access to the logger for live data.
 
 ```sh
 flutter pub get
