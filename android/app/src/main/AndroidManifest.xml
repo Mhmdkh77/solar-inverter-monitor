@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -7,7 +8,7 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Required for background foreground service (Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- Required for notifications on Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Required for full-screen alarm-style notifications -->
@@ -18,6 +19,20 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:enableOnBackInvokedCallback="true">
+        <!-- Keep plugin components internal; system boot broadcasts still reach the receiver. -->
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            tools:replace="android:exported" />
+        <receiver
+            android:name="id.flutter.flutter_background_service.WatchdogReceiver"
+            android:exported="false"
+            tools:replace="android:exported" />
+        <receiver
+            android:name="id.flutter.flutter_background_service.BootReceiver"
+            android:exported="false"
+            tools:replace="android:exported" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

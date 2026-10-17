@@ -49,3 +49,16 @@ app.*.map.json
 *.jks
 *.keystore
 /android/key.properties
+
+# Local environment settings and private portfolio notes.
+.env
+.env.*
+!.env.example
+!.env.sample
+/PORTFOLIO_NOTES.md
+
+# Local database exports and Git recovery bundles.
+*.db
+*.sqlite
+*.sqlite3
+*.bundle

@@ -8,51 +8,49 @@ The app reads inverter data over the local network. It does not need a Solarman 
 
 ## Screenshots
 
-| Live dashboard | Grid event log |
-| :---: | :---: |
-| <img src="screenshots/dashboard.png" alt="Dashboard with battery SOC, grid relay status, battery and PV power, and alarm control" width="300"> | <img src="screenshots/event-log.png" alt="Event log showing a grid outage and restoration" width="300"> |
-| Add a logger manually | Settings |
-| <img src="screenshots/add-manually.png" alt="Manual logger setup form with name, IP address, serial number, and port fields" width="300"> | <img src="screenshots/settings.png" alt="Settings showing local data storage and protocol details" width="300"> |
+|                                                                 Live dashboard                                                                 |                                                 Grid event log                                                  |
+| :--------------------------------------------------------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------: |
+| <img src="screenshots/dashboard.png" alt="Dashboard with battery SOC, grid relay status, battery and PV power, and alarm control" width="300"> |     <img src="screenshots/event-log.png" alt="Event log showing a grid outage and restoration" width="300">     |
+|                                                             Add a logger manually                                                              |                                                    Settings                                                     |
+|   <img src="screenshots/add-manually.png" alt="Manual logger setup form with name, IP address, serial number, and port fields" width="300">    | <img src="screenshots/settings.png" alt="Settings showing local data storage and protocol details" width="300"> |
 
 ## What you can do
 
 - Add a data logger by scanning the local network or entering its IP address and serial number.
 - Save multiple loggers and open a dashboard for each one.
 - See battery SOC, grid relay status, battery charging or discharging power, and PV1 + PV2 power while the dashboard is open.
-- Filter the grid event log by outage or restoration.
 - Enable or disable grid-change alerts separately for each logger.
+- Filter the grid event log by outage or restoration.
 - Clear a logger's event log, clear all history, or remove a logger and its stored data.
 
 ## How the connection works
 
-The phone connects to the **data logger**, which relays Modbus requests to the inverter. Solar Inverter Monitor uses the [deye_solarman Dart library](https://github.com/Mhmdkh77/deye-solarman) for SolarmanV5 communication. It is a Git dependency pinned to `v1.0.2` in [pubspec.yaml](pubspec.yaml); `flutter pub get` downloads it automatically.
+The phone connects over Wi-Fi to the **data logger**, which relays Modbus requests to the inverter. There are two ways to connect:
 
-| Method | What you need |
-| --- | --- |
-| Scan | Phone and logger on the same local broadcast network. The app discovers the logger's IP address and serial number. |
-| Add manually | The serial number printed on the logger's label, plus a reachable IP address. When the logger is on home Wi-Fi, find its IP address in the router's device list. The default TCP port is `8899` and can be changed in the form. |
+- **Home Wi-Fi:** the phone and logger join the same home network.
+- **Logger Wi-Fi:** the phone joins the Wi-Fi network created by the LSW-3 logger directly.
 
-The LSW-3 can join a home Wi-Fi network or provide its own Wi-Fi access point. On home Wi-Fi, the router assigns its IP address. On the logger's access point, connect your phone to that network and enter the logger's reachable address manually. Scanning uses UDP broadcast; a known address can be connected to directly.
+You can try scanning on either connection. Scanning uses UDP broadcast to discover the logger's IP address and serial number. For manual setup, use the serial number on the logger's label and its IP address: check the router's device list on home Wi-Fi, or the logger's documentation when connected directly. The app connects over TCP, using port `8899` by default.
 
-The dashboard requests holding registers `184` through `194` and displays Battery SOC (`184`), PV1 and PV2 power (`186`, `187`), Battery Power (`190`), and Grid Relay Status (`194`). On the tested inverter, positive battery power means discharging. The PV figure is the sum of PV1 and PV2; the app does not display every value available in the library.
+Solar Inverter Monitor uses the [deye_solarman Dart library](https://github.com/Mhmdkh77/deye-solarman) for SolarmanV5 communication.
 
 ## Run the app
 
-You need the [Flutter SDK](https://docs.flutter.dev/get-started/install), an Android device, and a reachable data logger for live readings. The checked-in dependency lockfile requires Flutter `>=3.44.0` and Dart `>=3.12.0 <4.0.0`; the installed SDK metadata inspected for this checkout reports Flutter `3.47.2` and Dart `3.13.2`. The broader Dart constraint in `pubspec.yaml` does not describe the minimum needed by the current locked dependencies. An emulator can show the UI, but it needs network access to the logger for live data.
+Install the released app from the [Android APK download](https://github.com/Mhmdkh77/solar-inverter-monitor/releases/download/v2.0.0/solar-inverter-monitor-v2.0.0.apk).
+
+To run from source, you need [Flutter SDK](https://docs.flutter.dev/get-started/install) **3.44.0 or newer**, an Android device, and a reachable data logger for live readings. An emulator can show the UI, but it needs network access to the logger for live data.
 
 ```sh
 flutter pub get
 flutter run
 ```
 
-In the app:
+Set up a logger:
 
-1. Tap **Add Logger** and choose **Scan Network** or **Add Manually**.
-2. Give the logger a name and confirm its IP address, serial number, and port.
+1. Tap **Add Logger → Scan Network** and select your logger. If scanning finds nothing, choose **Add Manually**.
+2. Give it a name, confirm its IP address, serial number, and port, then tap **Add Logger**.
 3. Open the logger to view its dashboard.
 4. Enable **Background Alarm** if you want alerts for grid state changes. Grant notification permission when Android asks.
-
-If discovery finds nothing, check that the phone can reach the logger on the current Wi-Fi network. You can still add a known address manually.
 
 ## Monitoring and local data
 
@@ -62,9 +60,24 @@ The first valid grid reading establishes the starting state. A later change reco
 
 Logger configuration is saved with SharedPreferences. Grid changes are stored locally in SQLite and remain until you clear the event log or remove the logger.
 
+## Register details
+
+The dashboard requests holding registers `184` through `194` and displays Battery SOC (`184`), PV1 and PV2 power (`186`, `187`), Battery Power (`190`), and Grid Relay Status (`194`). On the tested inverter, positive battery power means discharging. The PV figure is the sum of PV1 and PV2.
+
 ## Project layout
 
+Tracked source and configuration are shown below. Android sources and screenshots are grouped by directory.
+
 ```text
+android/
+  .gitignore
+  app/
+    build.gradle
+    src/
+  gradle/wrapper/gradle-wrapper.properties
+  build.gradle
+  gradle.properties
+  settings.gradle
 lib/
   main.dart
   models/
@@ -81,26 +94,32 @@ lib/
     home_screen.dart
     settings_screen.dart
     splash_screen.dart
-android/
 screenshots/
 test/
   inverter_reading_test.dart
 tool/
   generate_icons.py
-pubspec.yaml
+.gitignore
+.metadata
+analysis_options.yaml
 LICENSE
+pubspec.yaml
+pubspec.lock
+README.md
 ```
 
 `lib/` contains the app, `android/` contains its Android configuration, `screenshots/` holds the README images, and `tool/` contains the launcher icon generator.
 
-## Development status
+## Development
+
+The `deye_solarman` Git dependency is pinned to `v1.0.2` in [pubspec.yaml](pubspec.yaml); `flutter pub get` downloads it automatically.
 
 ```sh
 flutter analyze
 flutter test
 ```
 
-The app supports **Android**. To build a release APK, create your own private Android signing key and `android/key.properties` as described in the [Flutter Android release guide](https://docs.flutter.dev/deployment/android#sign-the-app), then run `flutter build apk --release`. Signing credentials are excluded from Git.
+The app supports **Android**. To build a release APK, create your own private Android signing key and `android/key.properties` as described in the [Flutter Android release guide](https://docs.flutter.dev/deployment/android#sign-the-app), then run `flutter build apk --release`.
 
 The launcher artwork is defined in [tool/generate_icons.py](tool/generate_icons.py). To edit and regenerate the Android icon sizes, install Python and Pillow, then run:
 

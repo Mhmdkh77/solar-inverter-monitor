@@ -81,6 +81,7 @@ class BackgroundService {
         onStart: onStart,
         autoStart: false,
         isForegroundMode: true,
+        foregroundServiceTypes: [AndroidForegroundType.connectedDevice],
         notificationChannelId: _monitorChannelId,
         initialNotificationTitle: 'Solar Inverter Monitor',
         initialNotificationContent: 'Starting…',
