@@ -36,7 +36,7 @@ Solar Inverter Monitor uses the [deye_solarman Dart library](https://github.com/
 
 ## Run the app
 
-Install the released app from the [Android APK download](https://github.com/Mhmdkh77/solar-inverter-monitor/releases/download/v2.0.0/solar-inverter-monitor-v2.0.0.apk).
+Install the released app from the [Android APK download](https://github.com/Mhmdkh77/solar-inverter-monitor/releases/download/v2.0.1/solar-inverter-monitor-v2.0.1.apk).
 
 To run from source, you need [Flutter SDK](https://docs.flutter.dev/get-started/install) **3.44.0 or newer**, an Android device, and a reachable data logger for live readings. An emulator can show the UI, but it needs network access to the logger for live data.
 
